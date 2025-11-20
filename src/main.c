@@ -6,46 +6,21 @@ void GPIO_Configuration(void);
 void Delay(uint32_t nCount);
 
 
-
 int main(void)
 {
     RCC_Configuration();
     GPIO_Configuration();
 
-    // full red neopixel
-    for (int i = 0; i < 9; i++) {
-        GPIOC->BSRR = (1 << (7));
-        Delay(8);
-        GPIOC->BSRR = (1 << (7 + 16));
-        Delay(3);
-    }
-    // no green
-    for (int i = 0; i < 9; i++) {
-        GPIOC->BSRR = (1 << (7));
-        Delay(3);
-        GPIOC->BSRR = (1 << (7 + 16));
-        Delay(8);
-    }
-    // no blue
-    for (int i = 0; i < 9; i++) {
-        GPIOC->BSRR = (1 << (7));
-        Delay(3);
-        GPIOC->BSRR = (1 << (7 + 16));
-        Delay(8);
-    }
-    GPIOC->BSRR = (1 << (7 + 16));
-
-
     while (1)
     {
         GPIOC->BSRR |= (1 << (8));
-        Delay(5000);
+        Delay(1000);
         GPIOC->BSRR |= (1 << (8 + 16));
-        Delay(5000);
+        Delay(1000);
         GPIOC->BSRR |= (1 << (9));
-        Delay(5000);
+        Delay(1000);
         GPIOC->BSRR |= (1 << (9 + 16));
-        Delay(5000);
+        Delay(1000);
     }
 }
 
@@ -62,40 +37,46 @@ void GPIO_Configuration(void) {
 }
 
 void RCC_Configuration(void) {
-    RCC->CR |= 0x10000; //HSE on
-    while (!(RCC->CR & 0x20000)) {}
-    //flash access setup
-    FLASH->ACR &= 0x00000038;   //mask register
-    FLASH->ACR |= 0x00000002;   //flash 2 wait state
+    RCC->CR |= 0x10000; //HSE on - External high speed clock enabled
+    while (!(RCC->CR & 0x20000)) {} // HSE ready - waiting until the external clock is ready
 
-    FLASH->ACR &= 0xFFFFFFEF;   //mask register
-    FLASH->ACR |= 0x00000010;   //enable Prefetch Buffer
+    // //flash access setup
+    // FLASH->ACR &= 0x00000038;   //mask register
+    // FLASH->ACR |= 0x00000002;   //flash 2 wait state
 
-    RCC->CFGR &= 0xFFC3FFFF;//maskovani PLLMUL
-    RCC->CFGR |= 0x1 << 18;//Nastveni PLLMUL 3x
-    RCC->CFGR |= 0x0 << 17;//nastaveni PREDIV1 1x
-    RCC->CFGR |= 0x10000;//PLL bude clocovan z PREDIV1
-    RCC->CFGR &= 0xFFFFFF0F;//HPRE=1x
-    RCC->CFGR &= 0xFFFFF8FF;//PPRE2=1x
-    RCC->CFGR &= 0xFFFFC7FF;//PPRE2=1x
+    // FLASH->ACR &= 0xFFFFFFEF;   //mask register
+    // FLASH->ACR |= 0x00000010;   //enable Prefetch Buffer
 
-    RCC->CR |= 0x01000000;//PLL on
-    while (!(RCC->CR & 0x02000000)) {}//PLL stable??
+    // Select external clock for PLL
+    RCC->CFGR |= 0x10000;
+    // HPRE set to zero
+    RCC->CFGR &= ~(0xF << 4);
+    //Predividers
+    RCC->CFGR &= ~(0b1 << 17);
+    RCC->CFGR &= ~(0b111 << 8);     // set low speed clock to 1x
+    RCC->CFGR &= ~(0b111 << 11);    // set high speed clock to 1x
+    // PLL multiplier config
+    RCC->CFGR &= ~(0b1111 << 18);
+    RCC->CFGR |= (0b0001 << 18);    // 3x multiplier
+    // => Total CPU freq = 24MHz
 
-    RCC->CFGR &= 0xFFFFFFFC;
-    RCC->CFGR |= 0x2;//nastaveni PLL jako zdroj hodin pro SYSCLK
+    // turning PLL on and waiting
+    RCC->CR |= (1 << 24);
+    while (!(RCC->CR & (1 << 25))) {}
 
-    while (!(RCC->CFGR & 0x00000008))//je SYSCLK nastaveno?
-    {
-    }
+    // Setting the PLL clock as the system clock and waiting
+    RCC->CFGR &= ~(0b11);
+    RCC->CFGR |= 0b10;
+    while (!(RCC->CFGR & 0x00000008)) {}
 
+    // Enable clocku do portu A, B, C, D
     RCC->APB2ENR |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5);
 }
 
-/*Delay smycka zpozduje zhruba o nCount 100 nanosekund*/
+/*Delay_ms smycka zpozduje zhruba o nCount 1 ms*/
 void Delay(uint32_t nCount)
 {
     for (volatile uint32_t i = 0; nCount != 0; nCount--) {
-        for (i = 600; i != 0; i--);
+        for (i = 2000; i != 0; i--);
     }
 }
