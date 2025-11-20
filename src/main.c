@@ -4,23 +4,23 @@
 void RCC_Configuration(void);
 void GPIO_Configuration(void);
 void Delay(uint32_t nCount);
+void Timer_Configuration(void);
 
+#define LEFT_LED_ON 0
+#define LEFT_LED_OFF 1
+#define RIGHT_LED_ON 2
+#define RIGHT_LED_OFF 3
+uint8_t state = LEFT_LED_ON;
 
 int main(void)
 {
     RCC_Configuration();
     GPIO_Configuration();
+    Timer_Configuration();
 
     while (1)
     {
-        GPIOC->BSRR |= (1 << (8));
-        Delay(1000);
-        GPIOC->BSRR |= (1 << (8 + 16));
-        Delay(1000);
-        GPIOC->BSRR |= (1 << (9));
-        Delay(1000);
-        GPIOC->BSRR |= (1 << (9 + 16));
-        Delay(1000);
+
     }
 }
 
@@ -73,10 +73,46 @@ void RCC_Configuration(void) {
     RCC->APB2ENR |= (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5);
 }
 
+void Timer_Configuration(void) {
+    RCC->APB2ENR |= (1 << 18); // Enable the clock for timer 17
+    // Timer 17 configuration - the timer that switches the LED lights on the board
+    TIM17->PSC = 2399; // 500kHz timer freq
+    TIM17->ARR = 9999; // Counts for 1 second
+    TIM17->DIER |= (1); // Enables the interrupt when counter overflows
+    NVIC->ISER[0] |= (1 << TIM1_TRG_COM_TIM17_IRQn);
+
+
+    TIM17->CR1 |= 1; // Enable the counter
+}
 /*Delay_ms smycka zpozduje zhruba o nCount 1 ms*/
 void Delay(uint32_t nCount)
 {
     for (volatile uint32_t i = 0; nCount != 0; nCount--) {
         for (i = 2000; i != 0; i--);
+    }
+}
+
+void TIM1_TRG_COM_TIM17_IRQHandler(void) {
+    TIM17->SR &= 0;
+    switch (state) {
+    case LEFT_LED_ON:
+        GPIOC->BSRR |= (1 << (8));
+        state = LEFT_LED_OFF;
+        break;
+    case LEFT_LED_OFF:
+        GPIOC->BSRR |= (1 << (8 + 16));
+        state = RIGHT_LED_ON;
+        break;
+    case RIGHT_LED_ON:
+        GPIOC->BSRR |= (1 << (9));
+        state = RIGHT_LED_OFF;
+        break;
+    case RIGHT_LED_OFF:
+        GPIOC->BSRR |= (1 << (9 + 16));
+        state = LEFT_LED_ON;
+        break;
+    default:
+        state = LEFT_LED_ON;
+        break;
     }
 }
