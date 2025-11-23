@@ -6,8 +6,8 @@ void GPIO_Configuration(void);
 void Delay(uint32_t nCount);
 void BlinkTimer_Configuration(void);
 void NeoPixelTimerAndDMA_Configuration(void);
-void setNeopixelValues(uint16_t buffer[24], uint16_t* p_buffer);
-void NeoPixelSetColor(char color);
+void setNeoPixelValue(uint8_t greenVal, uint8_t redVal, uint8_t blueVal);
+
 
 // State machine defines for the blinking LEDs on the board
 #define LEFT_LED_ON 0
@@ -17,7 +17,7 @@ void NeoPixelSetColor(char color);
 uint8_t state;
 
 // NeoPixel definitions
-uint16_t neopixel_buffer[24];
+uint16_t neopixel_buffer[25];
 // NeoPixel PWM values
 #define NEOPIXEL_ZERO 8
 #define NEOPIXEL_ONE 17
@@ -27,11 +27,41 @@ int main(void) {
     GPIO_Configuration();
     BlinkTimer_Configuration();
     NeoPixelTimerAndDMA_Configuration();
-    Delay(1); // Delay is here so the timer stabilises - otherwise it shines in a blue-ish color instead of white
-    NeoPixelSetColor('w');
+
+    volatile uint8_t redVal = 255;
+    volatile uint8_t greenVal = 0;
+    volatile uint8_t blueVal = 0;
 
     while (1) {
-        Delay(1000);
+        while (DMA1_Channel6->CCR & 1) {}
+
+        // Phase 1: Red -> Yellow (Green fades in)
+        if (redVal == 255 && blueVal == 0 && greenVal < 255) {
+            greenVal++;
+        }
+        // Phase 2: Yellow -> Green (Red fades out)
+        else if (greenVal == 255 && blueVal == 0 && redVal > 0) {
+            redVal--;
+        }
+        // Phase 3: Green -> Cyan (Blue fades in)
+        else if (greenVal == 255 && redVal == 0 && blueVal < 255) {
+            blueVal++;
+        }
+        // Phase 4: Cyan -> Blue (Green fades out)
+        else if (blueVal == 255 && redVal == 0 && greenVal > 0) {
+            greenVal--;
+        }
+        // Phase 5: Blue -> Magenta (Red fades in)
+        else if (blueVal == 255 && greenVal == 0 && redVal < 255) {
+            redVal++;
+        }
+        // Phase 6: Magenta -> Red (Blue fades out)
+        else if (redVal == 255 && greenVal == 0 && blueVal > 0) {
+            blueVal--;
+        }
+        Delay(1);
+
+        setNeoPixelValue(redVal / 20, greenVal / 20, blueVal / 20); // dividing so it's less bright
     }
 }
 
@@ -95,6 +125,8 @@ void BlinkTimer_Configuration(void) {
     TIM17->ARR = 9999; // Counts for 1 second
     TIM17->DIER |= (1); // Enables the interrupt when counter overflows
     NVIC->ISER[0] |= (1 << TIM1_TRG_COM_TIM17_IRQn); // Enable the interrupt
+    NVIC_SetPriority(TIM1_TRG_COM_TIM17_IRQn, 1);
+
 
     TIM17->CR1 |= 1; // Enable the counter
 }
@@ -115,22 +147,18 @@ void TIM1_TRG_COM_TIM17_IRQHandler(void) {
     case LEFT_LED_ON:
         GPIOC->BSRR |= (1 << (8));
         state = LEFT_LED_OFF;
-        NeoPixelSetColor('r');
         break;
     case LEFT_LED_OFF:
         GPIOC->BSRR |= (1 << (8 + 16));
         state = RIGHT_LED_ON;
-        NeoPixelSetColor('g');
         break;
     case RIGHT_LED_ON:
         GPIOC->BSRR |= (1 << (9));
         state = RIGHT_LED_OFF;
-        NeoPixelSetColor('b');
         break;
     case RIGHT_LED_OFF:
         GPIOC->BSRR |= (1 << (9 + 16));
         state = LEFT_LED_ON;
-        NeoPixelSetColor('w');
         break;
     default:
         state = LEFT_LED_ON;
@@ -163,7 +191,7 @@ void NeoPixelTimerAndDMA_Configuration(void) {
     RCC->AHBENR |= (1 << 0); // Enable DMA1 clock
     DMA1_Channel6->CPAR = (uint32_t)&TIM3->CCR1; // DMA is writing to pwm value of timer3channel1
     DMA1_Channel6->CMAR = (uint32_t)neopixel_buffer; // DMA is writing stuff from this buffer
-    DMA1_Channel6->CNDTR = 24; // 24 transfers to complete
+    DMA1_Channel6->CNDTR = 25; // 24 transfers to complete
     DMA1_Channel6->CCR = 0;
     DMA1_Channel6->CCR |= (1 << 1); // Enable transfer complete interrupt
     DMA1_Channel6->CCR |= (1 << 4); // Read from buffer and write to timer
@@ -183,60 +211,44 @@ void DMA1_Channel6_IRQHandler(void) {
     if (DMA1->ISR & (1 << 21)) {
         DMA1->IFCR |= (1 << 21); // Clear the interrupt flag
         DMA1_Channel6->CCR &= ~(1 << 0); // Disable it
-        DMA1_Channel6->CNDTR = 24; // 24 transfers to complete
-        TIM3->CCR1 = 0; // set PWM to 0 so the signal is LOW and the data latches in the neopixel LED
+        DMA1_Channel6->CNDTR = 25; // 24 transfers to complete
         // Enabling the DMA1channel6 happens after values are sent into the neopixel buffer.
 
     }
 }
 
-void NeoPixelSetColor(char color) {
-    switch (color)
-    {
-    case 'g':
-        for (int i = 0; i < 8; i++) {
+void setNeoPixelValue(uint8_t redVal, uint8_t greenVal, uint8_t blueVal) {
+    for (uint8_t i = 0; i < 8; i++) {
+        if (redVal & 0x80) {
             neopixel_buffer[i] = NEOPIXEL_ONE;
         }
-        for (int i = 8; i < 16; i++) {
+        else {
             neopixel_buffer[i] = NEOPIXEL_ZERO;
         }
-        for (int i = 16; i < 24; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ZERO;
+
+        if (greenVal & 0x80) {
+            neopixel_buffer[i + 8] = NEOPIXEL_ONE;
         }
-        break;
-    case 'r':
-        for (int i = 0; i < 8; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ZERO;
+        else {
+            neopixel_buffer[i + 8] = NEOPIXEL_ZERO;
         }
-        for (int i = 8; i < 16; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ONE;
+
+        if (blueVal & 0x80) {
+            neopixel_buffer[i + 16] = NEOPIXEL_ONE;
         }
-        for (int i = 16; i < 24; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ZERO;
+        else {
+            neopixel_buffer[i + 16] = NEOPIXEL_ZERO;
         }
-        break;
-    case 'b':
-        for (int i = 0; i < 8; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ZERO;
-        }
-        for (int i = 8; i < 16; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ZERO;
-        }
-        for (int i = 16; i < 24; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ONE;
-        }
-        break;
-    default:
-        for (int i = 0; i < 8; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ONE;
-        }
-        for (int i = 8; i < 16; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ONE;
-        }
-        for (int i = 16; i < 24; i++) {
-            neopixel_buffer[i] = NEOPIXEL_ONE;
-        }
-        break;
+
+        neopixel_buffer[24] = 0; // setting to zero because then the PWM pulse goes to zero straight away
+
+
+        redVal <<= 1;
+        greenVal <<= 1;
+        blueVal <<= 1;
     }
+
+
+
     DMA1_Channel6->CCR |= (1 << 0); // Enable DMA
 }
